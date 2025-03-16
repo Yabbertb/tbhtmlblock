@@ -83,6 +83,11 @@ class AdminHTMLBlockController extends ModuleAdminController
                     'align'   => 'center',
                     'class'   => 'fixed-width-xs',
                 ],
+                'id_shop'  => [
+                    'title'   => 'ID Shop',
+                    'align'   => 'center',
+                    'class'   => 'fixed-width-xs',
+                ],
                 'name'      => [
                     'title'   => $this->l('Name'),
                 ],
@@ -283,7 +288,6 @@ class AdminHTMLBlockController extends ModuleAdminController
     public function processAdd()
     {
         $blockName = Tools::getValue('name');
-
         if ( ! $blockName || ! Validate::isGenericName($blockName)) {
             $this->errors[] = $this->l('Invalid name');
         } else {
@@ -297,16 +301,17 @@ class AdminHTMLBlockController extends ModuleAdminController
                 $this->errors[] = $this->l('Error while adding the new block, please retry');
             } else {
                 $blockId = (int)Db::getInstance()->Insert_ID();
-
                 $hookName = Tools::getValue('hook_name');
-                $position = (int)Db::getInstance()->getValue('SELECT COALESCE(MAX(position), -1) + 1 FROM ' . _DB_PREFIX_ . TbHtmlBlock::TABLE_NAME_HOOK . ' WHERE hook_name = "' . pSQL($hookName).'"');
-
+                $position = (int)Db::getInstance()->getValue('
+                    SELECT COALESCE(MAX(position), -1) + 1
+                    FROM ' . _DB_PREFIX_ . TbHtmlBlock::TABLE_NAME_HOOK . '
+                    WHERE hook_name = "' . pSQL($hookName).'"
+                ');
                 $hookData = [
                     'id_block'  => $blockId,
                     'hook_name' => pSQL($hookName),
                     'position'  => $position,
                 ];
-
                 if (! Db::getInstance()->insert(TbHtmlBlock::TABLE_NAME_HOOK, $hookData)) {
                     Db::getInstance()->delete(TbHtmlBlock::TABLE_NAME, 'id_block = ' . $blockId);
                     $this->errors[] = $this->l('Error while adding the hook. ');
@@ -325,10 +330,18 @@ class AdminHTMLBlockController extends ModuleAdminController
                             $this->errors[] = $this->l('Error while adding the block\'s content for language "'.$langId.'"');
                         }
                     }
+                    if (!Db::getInstance()->insert(
+                        TbHtmlBlock::TABLE_NAME_SHOP,
+                        [
+                            'id_block' => $blockId,
+                            'id_shop' => Context::getContext()->shop->id,
+                        ]
+                    )) {
+                        $this->errors[] = $this->l('Error while adding the shop.');
+                    }
                 }
             }
         }
-
         if (empty($this->errors)) {
             $this->redirect_after = static::$currentIndex.'&conf=3&token='.$this->token;
         }
@@ -342,14 +355,11 @@ class AdminHTMLBlockController extends ModuleAdminController
      */
     public function processUpdate()
     {
-
         $blockId = (int)Tools::getValue('id_block');
-
         $blockName = Tools::getValue('name');
         if ( ! $blockName || ! Validate::isGenericName($blockName)) {
             $this->errors[] = $this->l('Invalid name');
-        }
-        else {
+        } else {
             if (!Db::getInstance()->update(
                 TbHtmlBlock::TABLE_NAME,
                 [
@@ -370,10 +380,8 @@ class AdminHTMLBlockController extends ModuleAdminController
                     $this->errors[] = $this->l('Error while updating the hook ');
                 } else {
                     foreach ($this->getLanguages() as $lang) {
-
                         $langId = (int)$lang['id_lang'];
                         $content = Tools::getValue('content_'.$langId);
-
                         // add the language if not present
                         $isLangAdded = Db::getInstance()->getValue('SELECT 1 FROM '._DB_PREFIX_.TbHtmlBlock::TABLE_NAME_LANG.' WHERE id_block = '.$blockId.' AND id_lang = ' . $langId);
                         if ( ! $isLangAdded) {
@@ -386,7 +394,6 @@ class AdminHTMLBlockController extends ModuleAdminController
                                 ]
                             );
                         }
-
                         if ( ! Db::getInstance()->update(
                             TbHtmlBlock::TABLE_NAME_LANG,
                             [
@@ -397,10 +404,18 @@ class AdminHTMLBlockController extends ModuleAdminController
                             $this->errors[] = $this->l('Error while updating the block\'s content for language "'.$langId.'"');
                         }
                     }
+                    if ( ! Db::getInstance()->update(
+                        TbHtmlBlock::TABLE_NAME_SHOP,
+                        [
+                            'id_shop' => Context::getContext()->shop->id
+                        ],
+                        'id_block = '.$blockId
+                    )) {
+                        $this->errors[] = $this->l('Error while updating the shop.');
+                    }
                 }
             }
         }
-
         if (empty($this->errors)) {
             $this->redirect_after = static::$currentIndex.'&conf=4&token='.$this->token;
         }
@@ -418,6 +433,7 @@ class AdminHTMLBlockController extends ModuleAdminController
         Db::getInstance()->delete(TbHtmlBlock::TABLE_NAME, 'id_block = ' . $idBlock);
         Db::getInstance()->delete(TbHtmlBlock::TABLE_NAME_HOOK, 'id_block = ' . $idBlock);
         Db::getInstance()->delete(TbHtmlBlock::TABLE_NAME_LANG, 'id_block = ' . $idBlock);
+        Db::getInstance()->delete(TbHtmlBlock::TABLE_NAME_SHOP, 'id_block = ' . $idBlock);
 
         $this->redirect_after = static::$currentIndex.'&conf=1&token='.$this->token;
     }
