@@ -30,6 +30,7 @@ class TbHtmlBlock extends Module
     const TABLE_NAME = 'tbhtmlblock';
     const TABLE_NAME_LANG = 'tbhtmlblock_lang';
     const TABLE_NAME_HOOK = 'tbhtmlblock_hook';
+    const TABLE_NAME_SHOP = 'tbhtmlblock_shop';
 
     // List of hooks
     const HOOK_LIST = [
@@ -92,7 +93,7 @@ class TbHtmlBlock extends Module
     {
         $this->name = 'tbhtmlblock';
         $this->tab = 'front_office_features';
-        $this->version = '1.3.0';
+        $this->version = '1.4.0';
         $this->author = 'thirty bees';
         $this->tb_min_version = '1.0.0';
         $this->tb_versions_compliancy = '> 1.0.0';
@@ -164,29 +165,36 @@ class TbHtmlBlock extends Module
      * @return bool
      * @throws PrestaShopException
      */
-    private function installTable(){
-        $sql = 'CREATE TABLE  IF NOT EXISTS `'._DB_PREFIX_ . static::TABLE_NAME . '` (
-                `id_block` INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
-                `name` VARCHAR(64) NOT NULL,
-                `active` TINYINT(1) NOT NULL,
-                PRIMARY KEY (`id_block`)
-                ) ENGINE =' ._MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
-        $sql2 = 'CREATE TABLE  IF NOT EXISTS `'._DB_PREFIX_.static::TABLE_NAME_LANG.'` (
-                `id_block` INT(11) UNSIGNED NOT NULL,
-                `id_lang` INT(11) UNSIGNED NOT NULL,
-                `content` TEXT NOT NULL,
-                PRIMARY KEY (`id_block`, `id_lang`)
-                ) ENGINE =' ._MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
+    private function installTable()
+    {
+        $sql1 = 'CREATE TABLE IF NOT EXISTS `'._DB_PREFIX_.static::TABLE_NAME.'` (
+            `id_block` INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+            `name` VARCHAR(64) NOT NULL,
+            `active` TINYINT(1) NOT NULL,
+            PRIMARY KEY (`id_block`)
+        ) ENGINE ='._MYSQL_ENGINE_.' CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
+        $sql2 = 'CREATE TABLE IF NOT EXISTS `'._DB_PREFIX_.static::TABLE_NAME_LANG.'` (
+            `id_block` INT(11) UNSIGNED NOT NULL,
+            `id_lang` INT(11) UNSIGNED NOT NULL,
+            `content` TEXT NOT NULL,
+            PRIMARY KEY (`id_block`, `id_lang`)
+        ) ENGINE ='._MYSQL_ENGINE_.' CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
         $sql3 = 'CREATE TABLE IF NOT EXISTS `'._DB_PREFIX_.static::TABLE_NAME_HOOK.'` (
-                `id_block` INT(11) UNSIGNED NOT NULL,
-                `hook_name` VARCHAR(64) NOT NULL,
-                `position` INT(11) UNSIGNED NOT NULL,
-                PRIMARY KEY (`id_block`,  `hook_name`)
-                ) ENGINE =' ._MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
+            `id_block` INT(11) UNSIGNED NOT NULL,
+            `hook_name` VARCHAR(64) NOT NULL,
+            `position` INT(11) UNSIGNED NOT NULL,
+            PRIMARY KEY (`id_block`, `hook_name`)
+        ) ENGINE ='._MYSQL_ENGINE_.' CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
+        $sql4 = 'CREATE TABLE IF NOT EXISTS `'._DB_PREFIX_.static::TABLE_NAME_SHOP.'` (
+            `id_block` INT(11) UNSIGNED NOT NULL,
+            `id_shop` INT(11) UNSIGNED NOT NULL DEFAULT 1,
+            PRIMARY KEY (`id_block`, `id_shop`)
+        ) ENGINE='._MYSQL_ENGINE_.' CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
 
-        if ( ! Db::getInstance()->Execute($sql)
+        if ( ! Db::getInstance()->Execute($sql1)
             || ! Db::getInstance()->Execute($sql2)
             || ! Db::getInstance()->Execute($sql3)
+            || ! Db::getInstance()->Execute($sql4)
         ) {
             return false;
         }
@@ -202,9 +210,10 @@ class TbHtmlBlock extends Module
         if ($deleteTables) {
             $conn = Db::getInstance();
             return (
-                $conn->execute('DROP TABLE `' . _DB_PREFIX_ . static::TABLE_NAME . '`') &&
-                $conn->execute('DROP TABLE `' . _DB_PREFIX_ . static::TABLE_NAME_LANG . '`') &&
-                $conn->execute('DROP TABLE `' . _DB_PREFIX_ . static::TABLE_NAME_HOOK . '`')
+                $conn->execute('DROP TABLE IF EXISTS `' . _DB_PREFIX_ . static::TABLE_NAME . '`') &&
+                $conn->execute('DROP TABLE IF EXISTS `' . _DB_PREFIX_ . static::TABLE_NAME_LANG . '`') &&
+                $conn->execute('DROP TABLE IF EXISTS `' . _DB_PREFIX_ . static::TABLE_NAME_HOOK . '`') &&
+                $conn->execute('DROP TABLE IF EXISTS `' . _DB_PREFIX_ . static::TABLE_NAME_SHOP . '`')
             );
         }
         return true;
@@ -255,10 +264,12 @@ class TbHtmlBlock extends Module
     public function getAllBlocks()
     {
         $result = Db::getInstance(_PS_USE_SQL_SLAVE_)->ExecuteS('
-            SELECT b.*, bh.*, h.title as hook_title
+            SELECT b.*, bh.*, bs.*, h.title as hook_title
             FROM '._DB_PREFIX_.static::TABLE_NAME.' b
             LEFT JOIN '._DB_PREFIX_.static::TABLE_NAME_HOOK.' bh ON (bh.id_block = b.id_block)
+            LEFT JOIN '._DB_PREFIX_.static::TABLE_NAME_SHOP.' bs ON (bs.id_block = b.id_block)
             LEFT JOIN '._DB_PREFIX_.'hook h ON (h.name = bh.hook_name)
+            WHERE bs.id_shop = '.(int)$this->context->shop->id.'
             GROUP BY b.id_block
             ORDER BY bh.hook_name, bh.position
         ');
@@ -286,13 +297,15 @@ class TbHtmlBlock extends Module
     public function getFrontBlocks()
     {
         $result = Db::getInstance(_PS_USE_SQL_SLAVE_)->ExecuteS('
-            SELECT b.content, bh.hook_name
-            FROM '._DB_PREFIX_.static::TABLE_NAME_LANG.' b
-            LEFT JOIN '._DB_PREFIX_.static::TABLE_NAME_HOOK.' bh ON (bh.id_block = b.id_block)
-            LEFT JOIN '._DB_PREFIX_.static::TABLE_NAME.' o ON (o.id_block = b.id_block)
-            WHERE id_lang = '.(int)$this->context->language->id.'
-            AND o.active = 1
-            GROUP BY b.id_block
+            SELECT bl.content, bh.hook_name
+            FROM '._DB_PREFIX_.static::TABLE_NAME_LANG.' bl
+            LEFT JOIN '._DB_PREFIX_.static::TABLE_NAME_HOOK.' bh ON (bh.id_block = bl.id_block)
+            LEFT JOIN '._DB_PREFIX_.static::TABLE_NAME.' b ON (b.id_block = bl.id_block)
+            LEFT JOIN '._DB_PREFIX_.static::TABLE_NAME_SHOP.' bs ON (bs.id_block = bl.id_block)
+            WHERE bl.id_lang = '.(int)$this->context->language->id.'
+            AND bs.id_shop = '.(int)$this->context->shop->id.'
+            AND b.active = 1
+            GROUP BY bl.id_block
             ORDER BY bh.hook_name, bh.position
         ');
 
@@ -321,10 +334,11 @@ class TbHtmlBlock extends Module
 
         $sql = ('
             SELECT *
-            FROM '._DB_PREFIX_.static::TABLE_NAME .' t
-            LEFT JOIN '._DB_PREFIX_.static::TABLE_NAME_LANG.' tl ON (t.id_block = tl.id_block)
-            LEFT JOIN '._DB_PREFIX_.static::TABLE_NAME_HOOK.' th ON (t.id_block = th.id_block)
-            WHERE t.id_block ='.$blockId.'
+            FROM '._DB_PREFIX_.static::TABLE_NAME.' b
+            LEFT JOIN '._DB_PREFIX_.static::TABLE_NAME_LANG.' bl ON (b.id_block = bl.id_block)
+            LEFT JOIN '._DB_PREFIX_.static::TABLE_NAME_HOOK.' bh ON (b.id_block = bh.id_block)
+            LEFT JOIN '._DB_PREFIX_.static::TABLE_NAME_SHOP.' bs ON (b.id_block = bs.id_block)
+            WHERE b.id_block ='.$blockId.'
         ');
         $result = Db::getInstance(_PS_USE_SQL_SLAVE_)->ExecuteS($sql);
 
@@ -356,7 +370,11 @@ class TbHtmlBlock extends Module
      */
     public function getBlockStatus($id_block)
     {
-        return (bool)Db::getInstance()->getValue('SELECT active FROM '._DB_PREFIX_.static::TABLE_NAME.' WHERE id_block = '.(int)$id_block);
+        return (bool)Db::getInstance()->getValue('
+            SELECT active
+            FROM '._DB_PREFIX_.static::TABLE_NAME.'
+            WHERE id_block = '.(int)$id_block
+        );
     }
 
     /**
@@ -445,6 +463,7 @@ class TbHtmlBlock extends Module
                 'content' => $content
             ]);
         }
+        $conn->insert(static::TABLE_NAME_SHOP, ['id_block' => $blockId, 'id_shop' => 1]);
     }
 
     /**
